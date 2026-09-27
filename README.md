@@ -1,9 +1,9 @@
-# MoviesApp-Comp
+# MovieTicketHub
 
 > 本项目包含一个与 Android 同步逻辑兼容的本地后端。启动与接口说明见
 > [backend/README.md](backend/README.md)。
 
-MoviesApp-Comp is an Android application built using Jetpack Compose to provide users with an engaging experience for discovering movies. The app
+MovieTicketHub is an Android application built using Jetpack Compose to provide users with an engaging experience for discovering movies and buying cinema tickets. The app
 fetches information about Now Playing and Upcoming movies from [The Movie Database (TMDb)](https://www.themoviedb.org/), displays the list of movies,
 and allows users to mark movies as favorites. The app follows modern Android development best practices and is built with a clean architecture
 approach (MVI), using Kotlin, Jetpack Compose, and various libraries for efficient development.
@@ -80,7 +80,7 @@ Before running this project, ensure that you have the following installed:
 1. Clone the repository:
 
    ```bash
-   git clone https://github.com/mik237/MoviesApp-Comp.git
+   git clone https://github.com/<your-github-username>/MovieTicketHub.git
 
 2. Open the project in Android Studio.
 

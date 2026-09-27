@@ -86,7 +86,7 @@ def sync_maoyan_catalog(connection: sqlite3.Connection, *, fetcher=None) -> bool
     """
     try:
         if fetcher is None:
-            request = Request(MAOYAN_NOW_PLAYING_URL, headers={"User-Agent": "MoviesApp-Compose/1.0"})
+            request = Request(MAOYAN_NOW_PLAYING_URL, headers={"User-Agent": "MovieTicketHub/1.0"})
             with urlopen(request, timeout=5) as response:
                 payload = json.load(response)
         else:

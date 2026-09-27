@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">电影选座应用</string>
+    <string name="app_name">MovieTicketHub</string>
     <string name="title_movies_list_screen">想看点什么？</string>
     <string name="now_playing">正在上映</string>
     <string name="upcoming_movies">即将上映</string>

@@ -1,4 +1,4 @@
-# MoviesApp 认证与同步后端
+# MovieTicketHub 认证与同步后端
 
 Flask 服务负责账号注册、登录、可撤销会话和按账号隔离的数据同步。SQLite 默认保存到
 `backend/data/movies_backend.db`。密码只保存 Werkzeug `scrypt` 哈希，原始会话令牌只返回
