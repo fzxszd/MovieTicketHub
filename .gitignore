@@ -1,0 +1,47 @@
+# Android Studio / IntelliJ project files
+.idea/
+*.iml
+*.ipr
+*.iws
+.externalNativeBuild/
+.cxx/
+.agents/
+.kotlin/
+.specify/
+
+# Gradle and Android build output
+.gradle/
+**/build/
+captures/
+local.properties
+
+# Android signing material and generated service configuration
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+google-services.json
+
+# Python environments, cache, and test artifacts
+backend/.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Local runtime data and secrets
+backend/data/*.db
+backend/data/*.db-journal
+backend/data/*.db-shm
+backend/data/*.db-wal
+.env
+.env.*
+!.env.example
+
+# Operating-system files
+.DS_Store
+Thumbs.db
+desktop.ini

@@ -1,0 +1,262 @@
+openapi: 3.0.3
+info:
+  title: MoviesApp Cinema Showtimes API
+  version: 1.0.0
+  description: Public browsing and authoritative pre-seat-selection validation for cinema showtimes.
+servers:
+  - url: http://10.0.2.2:5000
+paths:
+  /v1/movies/{movieId}/showtime-dates:
+    get:
+      summary: List cinema-local dates with at least one sellable showtime
+      operationId: getShowtimeDates
+      parameters:
+        - $ref: '#/components/parameters/MovieId'
+        - $ref: '#/components/parameters/CityCode'
+      responses:
+        '200':
+          description: Available dates, ordered ascending
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [movieId, cityCode, serverTime, dates]
+                properties:
+                  movieId: { type: integer, minimum: 1 }
+                  cityCode: { type: string }
+                  serverTime: { type: string, format: date-time }
+                  dates:
+                    type: array
+                    items: { type: string, format: date }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/movies/{movieId}/cinema-showtimes:
+    get:
+      summary: Query and group matching sellable showtimes by cinema
+      operationId: getCinemaShowtimes
+      parameters:
+        - $ref: '#/components/parameters/MovieId'
+        - $ref: '#/components/parameters/CityCode'
+        - name: date
+          in: query
+          required: true
+          schema: { type: string, format: date }
+          description: Date interpreted in each returned cinema's IANA time zone.
+        - name: district
+          in: query
+          schema:
+            type: array
+            items: { type: string }
+          style: form
+          explode: true
+        - name: startTime
+          in: query
+          schema: { type: string, pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }
+        - name: endTime
+          in: query
+          schema: { type: string, pattern: '^([01]\\d|2[0-3]):[0-5]\\d$' }
+        - name: minPriceMinor
+          in: query
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: maxPriceMinor
+          in: query
+          schema: { type: integer, format: int64, minimum: 0 }
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [recommended, distance, price]
+            default: recommended
+        - name: latitude
+          in: query
+          schema: { type: number, format: double, minimum: -90, maximum: 90 }
+        - name: longitude
+          in: query
+          schema: { type: number, format: double, minimum: -180, maximum: 180 }
+      responses:
+        '200':
+          description: Matching cinemas. Empty cinemas is a successful empty result.
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CinemaShowtimeResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/showtimes/{showtimeId}/validation:
+    get:
+      summary: Revalidate a showtime immediately before seat selection
+      operationId: validateShowtime
+      parameters:
+        - name: showtimeId
+          in: path
+          required: true
+          schema: { type: string, minLength: 1 }
+        - name: observedVersion
+          in: query
+          required: true
+          schema: { type: integer, format: int64, minimum: 1 }
+      responses:
+        '200':
+          description: Latest authoritative showtime and comparison result
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ShowtimeValidationResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '404':
+          description: Unknown showtime identifier
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+components:
+  parameters:
+    MovieId:
+      name: movieId
+      in: path
+      required: true
+      schema: { type: integer, minimum: 1 }
+    CityCode:
+      name: cityCode
+      in: query
+      required: true
+      schema: { type: string, minLength: 1 }
+
+  responses:
+    BadRequest:
+      description: Invalid query parameters
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    ServerError:
+      description: Unexpected server failure
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+
+  schemas:
+    CinemaShowtimeResponse:
+      type: object
+      required: [movieId, localDate, cityCode, serverTime, requestedSort, appliedSort, availableDistricts, cinemas]
+      properties:
+        movieId: { type: integer, minimum: 1 }
+        localDate: { type: string, format: date }
+        cityCode: { type: string }
+        serverTime: { type: string, format: date-time }
+        requestedSort:
+          type: string
+          enum: [recommended, distance, price]
+        appliedSort:
+          type: string
+          enum: [recommended, distance, price]
+        sortNotice:
+          type: string
+          nullable: true
+          enum: [LOCATION_UNAVAILABLE]
+        availableDistricts:
+          type: array
+          items: { type: string }
+        cinemas:
+          type: array
+          items: { $ref: '#/components/schemas/CinemaWithShowtimes' }
+
+    CinemaWithShowtimes:
+      type: object
+      required: [id, name, address, cityCode, district, timeZone, minimumPrice, showtimes]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        address: { type: string }
+        cityCode: { type: string }
+        district: { type: string }
+        timeZone:
+          type: string
+          example: Asia/Shanghai
+        distanceMeters:
+          type: integer
+          nullable: true
+          minimum: 0
+        minimumPrice: { $ref: '#/components/schemas/Money' }
+        showtimes:
+          type: array
+          minItems: 1
+          items: { $ref: '#/components/schemas/Showtime' }
+
+    Showtime:
+      type: object
+      required:
+        - id
+        - movieId
+        - cinemaId
+        - auditoriumId
+        - auditoriumName
+        - startsAt
+        - endsAt
+        - timeZone
+        - language
+        - format
+        - basePrice
+        - salesStatus
+        - selectable
+        - version
+      properties:
+        id: { type: string }
+        movieId: { type: integer, minimum: 1 }
+        cinemaId: { type: string }
+        auditoriumId: { type: string }
+        auditoriumName: { type: string }
+        startsAt: { type: string, format: date-time, description: UTC instant }
+        endsAt: { type: string, format: date-time, description: UTC instant }
+        timeZone: { type: string, example: Asia/Shanghai }
+        language: { type: string, example: zh-CN }
+        format: { type: string, example: IMAX }
+        basePrice: { $ref: '#/components/schemas/Money' }
+        salesStatus:
+          type: string
+          enum: [ON_SALE, STOPPED, SOLD_OUT, CANCELLED]
+        selectable: { type: boolean }
+        unavailableReason:
+          type: string
+          nullable: true
+          enum: [STARTED, ENDED, CANCELLED, SALES_STOPPED, SOLD_OUT, CINEMA_CLOSED, AUDITORIUM_INACTIVE]
+        version: { type: integer, format: int64, minimum: 1 }
+
+    Money:
+      type: object
+      required: [amountMinor, currency]
+      properties:
+        amountMinor: { type: integer, format: int64, minimum: 0 }
+        currency: { type: string, minLength: 3, maxLength: 3, example: CNY }
+
+    ShowtimeValidationResponse:
+      type: object
+      required: [result, serverTime, changedFields, messageCode, latest]
+      properties:
+        result:
+          type: string
+          enum: [UNCHANGED, CHANGED, UNAVAILABLE]
+        serverTime: { type: string, format: date-time }
+        changedFields:
+          type: array
+          uniqueItems: true
+          items:
+            type: string
+            enum: [PRICE, START_TIME, END_TIME, AUDITORIUM, STATUS]
+        messageCode:
+          type: string
+          enum: [SHOWTIME_CURRENT, SHOWTIME_CHANGED, SHOWTIME_UNAVAILABLE]
+        latest: { $ref: '#/components/schemas/Showtime' }
+
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: INVALID_DATE
+        message:
+          type: string
+        field:
+          type: string
+          nullable: true

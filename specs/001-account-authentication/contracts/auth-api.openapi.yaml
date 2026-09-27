@@ -1,0 +1,286 @@
+openapi: 3.1.0
+info:
+  title: MoviesApp Authentication API
+  version: 1.0.0
+  description: Account authentication, revocable sessions, and authorized user-data sync.
+servers:
+  - url: https://api.example.invalid
+    description: Production placeholder; release configuration must use HTTPS.
+  - url: http://127.0.0.1:5000
+    description: Local development only.
+tags:
+  - name: Authentication
+  - name: Sync
+paths:
+  /auth/register:
+    post:
+      tags: [Authentication]
+      summary: Register a normal customer account and create a session.
+      operationId: register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterRequest'
+      responses:
+        '201':
+          description: Account and session created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccess'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          description: The normalized email is already registered.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/login:
+    post:
+      tags: [Authentication]
+      summary: Authenticate with email and password and create a session.
+      operationId: login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Authentication succeeded.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthSuccess'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          description: Invalid credentials. The same response is used for an unknown email and a wrong password.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /auth/me:
+    get:
+      tags: [Authentication]
+      summary: Validate the current session and return its user.
+      operationId: getCurrentUser
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Session is valid.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+  /auth/logout:
+    post:
+      tags: [Authentication]
+      summary: Revoke the current session.
+      operationId: logout
+      security:
+        - bearerAuth: []
+      responses:
+        '204':
+          description: Session revoked. Repeating logout is safe.
+  /sync/push:
+    post:
+      tags: [Sync]
+      summary: Replace the authenticated user's sync payload.
+      description: The user identity is derived from the bearer session; the payload must not contain email identity or password fields.
+      operationId: pushSync
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SyncData'
+      responses:
+        '200':
+          description: Sync data accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncReceipt'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+  /sync/pull:
+    get:
+      tags: [Sync]
+      summary: Return sync data for the authenticated user plus allowed global content.
+      operationId: pullSync
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Current user's sync data.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SyncData'
+        '401':
+          $ref: '#/components/responses/Unauthenticated'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+  schemas:
+    RegisterRequest:
+      type: object
+      additionalProperties: false
+      required: [username, email, password, confirmPassword]
+      properties:
+        username:
+          type: string
+          minLength: 2
+          maxLength: 30
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 8
+          maxLength: 64
+          writeOnly: true
+        confirmPassword:
+          type: string
+          minLength: 8
+          maxLength: 64
+          writeOnly: true
+    LoginRequest:
+      type: object
+      additionalProperties: false
+      required: [email, password]
+      properties:
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          minLength: 1
+          maxLength: 64
+          writeOnly: true
+    User:
+      type: object
+      additionalProperties: false
+      required: [id, username, email]
+      properties:
+        id:
+          type: string
+          format: uuid
+        username:
+          type: string
+        email:
+          type: string
+          format: email
+        avatarUri:
+          type: [string, 'null']
+    AuthSuccess:
+      type: object
+      additionalProperties: false
+      required: [user, token, expiresAt]
+      properties:
+        user:
+          $ref: '#/components/schemas/User'
+        token:
+          type: string
+          writeOnly: true
+          description: High-entropy opaque bearer token returned only when the session is created.
+        expiresAt:
+          type: string
+          format: date-time
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          enum: [validation_error, email_exists, invalid_credentials, unauthenticated, rate_limited, service_unavailable]
+        message:
+          type: string
+        fieldErrors:
+          type: object
+          additionalProperties:
+            type: string
+        retryAfterSeconds:
+          type: integer
+          minimum: 1
+    SyncData:
+      type: object
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+        avatarUri:
+          type: [string, 'null']
+        favorites:
+          type: array
+          items: { type: object }
+        orders:
+          type: array
+          items: { type: object }
+        ratings:
+          type: array
+          items: { type: object }
+        comments:
+          type: array
+          items: { type: object }
+        globalComments:
+          type: array
+          readOnly: true
+          items: { type: object }
+        likedCommentIds:
+          type: array
+          items: { type: integer }
+    SyncReceipt:
+      type: object
+      additionalProperties: false
+      required: [status, updatedAt]
+      properties:
+        status:
+          type: string
+          const: ok
+        updatedAt:
+          type: string
+          format: date-time
+  responses:
+    ValidationError:
+      description: Input validation failed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthenticated:
+      description: Bearer token is missing, expired, revoked, or otherwise invalid.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Too many failed attempts; retry later without revealing whether the account exists.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

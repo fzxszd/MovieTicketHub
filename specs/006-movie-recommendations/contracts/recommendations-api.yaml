@@ -1,0 +1,66 @@
+openapi: 3.0.3
+info: { title: MoviesApp Recommendations API, version: 1.0.0 }
+servers: [{ url: 'http://10.0.2.2:5000' }]
+paths:
+  /v1/recommendations:
+    get:
+      summary: Get personalized or explicitly labeled fallback recommendations
+      security: [{ BearerAuth: [] }, {}]
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 20, default: 10 } }
+      responses:
+        '200': { description: Recommendation, fallback or empty result, content: { application/json: { schema: { $ref: '#/components/schemas/RecommendationResponse' } } } }
+        '500': { description: Error only when no safe fallback can be produced, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/recommendations/{recommendationId}/events:
+    post:
+      summary: Record a deduplicated quality event without raw preference data
+      security: [{ BearerAuth: [] }, {}]
+      parameters:
+        - { name: recommendationId, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [eventId, movieId, action]
+              properties:
+                eventId: { type: string, format: uuid }
+                movieId: { type: integer, minimum: 1 }
+                action: { type: string, enum: [IMPRESSION, CLICK] }
+      responses:
+        '202': { description: Accepted or already recorded }
+        '400': { description: Invalid or mismatched event }
+components:
+  securitySchemes:
+    BearerAuth: { type: http, scheme: bearer, bearerFormat: opaque-session-token }
+  schemas:
+    RecommendationResponse:
+      type: object
+      required: [recommendationId, source, sourceLabel, personalizationState, algorithmVersion, catalogVersion, items, retryable]
+      properties:
+        recommendationId: { type: string }
+        source: { type: string, enum: [PERSONALIZED, FALLBACK_POPULAR, FALLBACK_NOW_PLAYING] }
+        sourceLabel: { type: string }
+        personalizationState: { type: string, enum: [CURRENT, PREFERENCES_SYNCING, NOT_APPLICABLE] }
+        fallbackReason: { type: string, nullable: true, enum: [GUEST, INSUFFICIENT_FAVORITES, INSUFFICIENT_FEATURES, SERVICE_UNAVAILABLE, NO_PERSONALIZED_RESULTS] }
+        algorithmVersion: { type: string }
+        catalogVersion: { type: string }
+        favoriteRevision: { type: integer, format: int64, nullable: true }
+        items: { type: array, uniqueItems: true, items: { $ref: '#/components/schemas/RecommendationItem' } }
+        retryable: { type: boolean }
+    RecommendationItem:
+      type: object
+      required: [movieId, title, availability, rank, reasonType, reasonText]
+      properties:
+        movieId: { type: integer, minimum: 1 }
+        title: { type: string }
+        posterUrl: { type: string, nullable: true }
+        availability: { type: string, enum: [AVAILABLE] }
+        rank: { type: integer, minimum: 1 }
+        reasonType: { type: string, enum: [SHARED_GENRE, SHARED_THEME, POPULAR, NOW_PLAYING] }
+        reasonText: { type: string }
+    ApiError:
+      type: object
+      required: [code, message]
+      properties: { code: { type: string }, message: { type: string } }

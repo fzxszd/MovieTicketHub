@@ -1,0 +1,272 @@
+openapi: 3.0.3
+info:
+  title: MoviesApp Seat Locking API
+  version: 1.0.0
+  description: Authoritative seat inventory and temporary all-or-nothing locks.
+servers:
+  - url: http://10.0.2.2:5000
+security:
+  - BearerAuth: []
+paths:
+  /v1/showtimes/{showtimeId}/seats:
+    get:
+      summary: Get the authoritative auditorium layout and current inventory
+      operationId: getShowtimeSeats
+      parameters:
+        - $ref: '#/components/parameters/ShowtimeId'
+        - name: afterVersion
+          in: query
+          schema: { type: integer, format: int64, minimum: 0 }
+          description: Optional client inventory version; the server may still return a full snapshot.
+      responses:
+        '200':
+          description: Full seat snapshot
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeatLayoutSnapshot' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409':
+          description: Showtime is no longer available for seat selection
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiError' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/showtimes/{showtimeId}/seat-locks:
+    post:
+      summary: Atomically lock one to six available seats for ten minutes
+      operationId: createSeatLock
+      parameters:
+        - $ref: '#/components/parameters/ShowtimeId'
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string, minLength: 16, maxLength: 128 }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [seatIds, observedInventoryVersion]
+              properties:
+                seatIds:
+                  type: array
+                  minItems: 1
+                  maxItems: 6
+                  uniqueItems: true
+                  items: { type: string, minLength: 1 }
+                observedInventoryVersion:
+                  type: integer
+                  format: int64
+                  minimum: 0
+      responses:
+        '201':
+          description: New lock created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeatLock' }
+        '200':
+          description: Existing effective lock returned for an idempotent retry
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeatLock' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: One or more seats conflict, or the showtime cannot be sold
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/LockConflict' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/seat-locks/{lockId}:
+    get:
+      summary: Revalidate and recover the current user's lock
+      operationId: getSeatLock
+      parameters:
+        - $ref: '#/components/parameters/LockId'
+      responses:
+        '200':
+          description: Current authoritative lock state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeatLock' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+    delete:
+      summary: Idempotently release the current user's unconverted lock
+      operationId: releaseSeatLock
+      parameters:
+        - $ref: '#/components/parameters/LockId'
+      responses:
+        '200':
+          description: Current terminal lock state after release attempt
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/SeatLock' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+  /v1/users/me/seat-locks:
+    delete:
+      summary: Release all active, unconverted locks for logout integration
+      operationId: releaseMySeatLocks
+      responses:
+        '200':
+          description: Locks released; repeating the operation is safe
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [releasedCount, serverTime]
+                properties:
+                  releasedCount: { type: integer, minimum: 0 }
+                  serverTime: { type: string, format: date-time }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '500': { $ref: '#/components/responses/ServerError' }
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque-session-token
+  parameters:
+    ShowtimeId:
+      name: showtimeId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+    LockId:
+      name: lockId
+      in: path
+      required: true
+      schema: { type: string, minLength: 1 }
+  responses:
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    Unauthorized:
+      description: Missing, expired or revoked session
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    NotFound:
+      description: Resource absent or not visible to the current user
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+    ServerError:
+      description: Unexpected server error; retry only with the same idempotency key
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiError' }
+  schemas:
+    SeatLayoutSnapshot:
+      type: object
+      required: [showtimeId, auditoriumId, auditoriumName, screenLabel, serverTime, inventoryVersion, rows]
+      properties:
+        showtimeId: { type: string }
+        auditoriumId: { type: string }
+        auditoriumName: { type: string }
+        screenLabel: { type: string }
+        serverTime: { type: string, format: date-time }
+        inventoryVersion: { type: integer, format: int64, minimum: 0 }
+        rows:
+          type: array
+          items: { $ref: '#/components/schemas/SeatRow' }
+    SeatRow:
+      type: object
+      required: [rowIndex, rowLabel, positions]
+      properties:
+        rowIndex: { type: integer, minimum: 0 }
+        rowLabel: { type: string }
+        positions:
+          type: array
+          items: { $ref: '#/components/schemas/SeatPosition' }
+    SeatPosition:
+      type: object
+      required: [rowIndex, columnIndex, rowLabel, positionType]
+      properties:
+        seatId: { type: string, nullable: true }
+        rowIndex: { type: integer, minimum: 0 }
+        columnIndex: { type: integer, minimum: 0 }
+        rowLabel: { type: string }
+        seatLabel: { type: string, nullable: true }
+        positionType:
+          type: string
+          enum: [SEAT, AISLE, EMPTY, COUPLE_LEFT, COUPLE_RIGHT]
+        priceZoneId: { type: string, nullable: true }
+        price: { $ref: '#/components/schemas/NullableMoney' }
+        inventoryStatus:
+          type: string
+          nullable: true
+          enum: [AVAILABLE, LOCKED_BY_ME, LOCKED_BY_OTHER, SOLD, UNAVAILABLE]
+        unavailableReason: { type: string, nullable: true }
+    SeatLock:
+      type: object
+      required: [id, showtimeId, status, serverTime, createdAt, expiresAt, items, totalPrice]
+      properties:
+        id: { type: string }
+        showtimeId: { type: string }
+        status:
+          type: string
+          enum: [ACTIVE, RELEASED, EXPIRED, CONVERTED, INVALIDATED]
+        serverTime: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        releaseReason:
+          type: string
+          nullable: true
+          enum: [USER, LOGOUT, EXPIRED, SHOWTIME_STOPPED, ORDER_CANCELLED]
+        items:
+          type: array
+          minItems: 1
+          maxItems: 6
+          items: { $ref: '#/components/schemas/LockedSeat' }
+        totalPrice: { $ref: '#/components/schemas/Money' }
+    LockedSeat:
+      type: object
+      required: [seatId, rowLabel, seatLabel, priceZoneId, unitPrice]
+      properties:
+        seatId: { type: string }
+        rowLabel: { type: string }
+        seatLabel: { type: string }
+        priceZoneId: { type: string }
+        unitPrice: { $ref: '#/components/schemas/Money' }
+    Money:
+      type: object
+      required: [amountMinor, currency]
+      properties:
+        amountMinor: { type: integer, format: int64, minimum: 0 }
+        currency: { type: string, minLength: 3, maxLength: 3, example: CNY }
+    NullableMoney:
+      allOf:
+        - $ref: '#/components/schemas/Money'
+      nullable: true
+    LockConflict:
+      type: object
+      required: [code, message, conflictingSeatIds, latestInventoryVersion, serverTime]
+      properties:
+        code:
+          type: string
+          enum: [SEAT_CONFLICT, SHOWTIME_UNAVAILABLE]
+        message: { type: string }
+        conflictingSeatIds:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+        latestInventoryVersion: { type: integer, format: int64, minimum: 0 }
+        serverTime: { type: string, format: date-time }
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }

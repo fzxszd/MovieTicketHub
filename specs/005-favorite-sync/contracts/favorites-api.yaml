@@ -1,0 +1,114 @@
+openapi: 3.0.3
+info: { title: MoviesApp Favorites API, version: 1.0.0 }
+servers: [{ url: 'http://10.0.2.2:5000' }]
+security: [{ BearerAuth: [] }]
+paths:
+  /v1/favorites:
+    get:
+      summary: List active favorites or incremental account changes
+      parameters:
+        - { name: afterRevision, in: query, schema: { type: integer, format: int64, minimum: 0, default: 0 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 100 } }
+      responses:
+        '200': { description: Ordered changes, content: { application/json: { schema: { $ref: '#/components/schemas/FavoriteChanges' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/favorites/{movieId}:
+    put:
+      summary: Set an explicit favorite target state idempotently
+      parameters:
+        - { name: movieId, in: path, required: true, schema: { type: integer, minimum: 1 } }
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 16, maxLength: 128 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [targetState, deviceId, localSequence]
+              properties:
+                targetState: { type: boolean }
+                deviceId: { type: string, minLength: 16, maxLength: 128 }
+                localSequence: { type: integer, format: int64, minimum: 1 }
+      responses:
+        '200': { description: Accepted or original idempotent result, content: { application/json: { schema: { $ref: '#/components/schemas/OperationResult' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409': { description: Operation rejected, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  /v1/favorites/sync:
+    post:
+      summary: Push ordered offline operations and pull changes atomically
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [deviceId, sinceRevision, operations]
+              properties:
+                deviceId: { type: string, minLength: 16, maxLength: 128 }
+                sinceRevision: { type: integer, format: int64, minimum: 0 }
+                operations:
+                  type: array
+                  maxItems: 100
+                  items: { $ref: '#/components/schemas/SyncOperation' }
+      responses:
+        '200': { description: Per-operation results and ordered remote changes, content: { application/json: { schema: { $ref: '#/components/schemas/SyncResponse' } } } }
+        '400': { description: Invalid ordering or payload, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+components:
+  securitySchemes:
+    BearerAuth: { type: http, scheme: bearer, bearerFormat: opaque-session-token }
+  responses:
+    Unauthorized: { description: Session missing, expired or revoked, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  schemas:
+    SyncOperation:
+      type: object
+      required: [clientOperationId, movieId, targetState, localSequence]
+      properties:
+        clientOperationId: { type: string, format: uuid }
+        movieId: { type: integer, minimum: 1 }
+        targetState: { type: boolean }
+        localSequence: { type: integer, format: int64, minimum: 1 }
+    OperationResult:
+      type: object
+      required: [clientOperationId, movieId, result, authoritativeState, serverRevision]
+      properties:
+        clientOperationId: { type: string }
+        movieId: { type: integer }
+        result: { type: string, enum: [ACCEPTED, ALREADY_PROCESSED, REJECTED] }
+        authoritativeState: { type: boolean }
+        serverRevision: { type: integer, format: int64, minimum: 0 }
+        errorCode: { type: string, nullable: true }
+    FavoriteChange:
+      type: object
+      required: [movieId, isFavorite, serverRevision, acceptedAt]
+      properties:
+        movieId: { type: integer, minimum: 1 }
+        isFavorite: { type: boolean }
+        serverRevision: { type: integer, format: int64, minimum: 1 }
+        acceptedAt: { type: string, format: date-time }
+        movie:
+          nullable: true
+          type: object
+          properties:
+            title: { type: string }
+            posterUrl: { type: string, nullable: true }
+            availability: { type: string, enum: [AVAILABLE, UNAVAILABLE] }
+    FavoriteChanges:
+      type: object
+      required: [serverRevision, changes, hasMore, nextRevision]
+      properties:
+        serverRevision: { type: integer, format: int64, minimum: 0 }
+        changes: { type: array, items: { $ref: '#/components/schemas/FavoriteChange' } }
+        hasMore: { type: boolean }
+        nextRevision: { type: integer, format: int64, minimum: 0 }
+    SyncResponse:
+      allOf:
+        - $ref: '#/components/schemas/FavoriteChanges'
+        - type: object
+          required: [operationResults]
+          properties:
+            operationResults: { type: array, items: { $ref: '#/components/schemas/OperationResult' } }
+    ApiError:
+      type: object
+      required: [code, message]
+      properties: { code: { type: string }, message: { type: string } }

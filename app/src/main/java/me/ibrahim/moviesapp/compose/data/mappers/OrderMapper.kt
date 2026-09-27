@@ -1,0 +1,10 @@
+package me.ibrahim.moviesapp.compose.data.mappers
+import me.ibrahim.moviesapp.compose.data.network.*
+import me.ibrahim.moviesapp.compose.data.dto.MoneyDto
+import me.ibrahim.moviesapp.compose.domain.cinema.Money
+import me.ibrahim.moviesapp.compose.domain.order.*
+fun MoneyDto.toDomainMoney()=Money(amountMinor,currency)
+fun OrderItemDto.toDomain()=OrderItem(seatId,rowLabel,seatLabel,priceZoneId,unitPrice.toDomainMoney())
+fun TicketDto.toDomain()=Ticket(id,orderId,status,credential,issuedAt)
+fun ServerOrderDto.toOrderDomain()=ServerOrder(id,status,total.toDomainMoney().amountMinor,total.currency,paymentDeadline,createdAt,quoteVersion,movie?.let{MovieSnapshot(it.id,it.title,it.posterUrl)},cinema?.let{PlaceSnapshot(it.id,it.name)},auditorium?.let{PlaceSnapshot(it.id,it.name)},showtime?.let{ShowtimeSnapshot(it.id,it.startsAt,it.timeZone)},items.map{it.toDomain()},paidAt,allowedActions,ticket?.toDomain())
+fun OrderQuoteDto.toOrderQuoteDomain()=OrderQuote(lockId,quoteVersion,MovieSnapshot(movie.id,movie.title,movie.posterUrl),PlaceSnapshot(cinema.id,cinema.name),PlaceSnapshot(auditorium.id,auditorium.name),ShowtimeSnapshot(showtime.id,showtime.startsAt,showtime.timeZone),items.map{it.toDomain()},subtotal.toDomainMoney(),fees.toDomainMoney(),total.toDomainMoney(),expiresAt)

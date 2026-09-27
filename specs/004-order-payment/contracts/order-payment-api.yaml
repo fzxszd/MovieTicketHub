@@ -1,0 +1,260 @@
+openapi: 3.0.3
+info:
+  title: MoviesApp Order and Payment API
+  version: 1.0.0
+servers:
+  - url: http://10.0.2.2:5000
+security:
+  - BearerAuth: []
+paths:
+  /v1/seat-locks/{lockId}/order-quote:
+    get:
+      summary: Get the current authoritative order quote for a seat lock
+      parameters:
+        - $ref: '#/components/parameters/LockId'
+      responses:
+        '200': { description: Current quote, content: { application/json: { schema: { $ref: '#/components/schemas/OrderQuote' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/orders:
+    post:
+      summary: Idempotently create one pending order from an active seat lock
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lockId, acceptedQuoteVersion]
+              properties:
+                lockId: { type: string }
+                acceptedQuoteVersion: { type: integer, minimum: 1 }
+      responses:
+        '201': { description: New order, content: { application/json: { schema: { $ref: '#/components/schemas/OrderDetail' } } } }
+        '200': { description: Existing idempotent order, content: { application/json: { schema: { $ref: '#/components/schemas/OrderDetail' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '409':
+          description: Lock invalid or quote changed; AMOUNT_CHANGED includes latestQuote
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OrderConflict' }
+    get:
+      summary: List only the current user's orders
+      parameters:
+        - name: cursor
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 50, default: 20 }
+      responses:
+        '200':
+          description: Paginated orders
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [orders]
+                properties:
+                  orders: { type: array, items: { $ref: '#/components/schemas/OrderSummary' } }
+                  nextCursor: { type: string, nullable: true }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/orders/{orderId}:
+    get:
+      summary: Recover the current authoritative order and ticket state
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200': { description: Order detail, content: { application/json: { schema: { $ref: '#/components/schemas/OrderDetail' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+  /v1/orders/{orderId}/payment-attempts:
+    post:
+      summary: Start or safely retry a payment attempt
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [method]
+              properties:
+                method:
+                  type: string
+                  enum: [ALIPAY_SIMULATED, WECHAT_SIMULATED]
+      responses:
+        '201': { description: Attempt started, content: { application/json: { schema: { $ref: '#/components/schemas/PaymentAttempt' } } } }
+        '200': { description: Existing idempotent attempt, content: { application/json: { schema: { $ref: '#/components/schemas/PaymentAttempt' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+  /v1/payment-provider/webhooks:
+    post:
+      summary: Receive an authoritative provider event
+      security: []
+      parameters:
+        - name: X-Payment-Signature
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [eventId, transactionRef, status]
+              properties:
+                eventId: { type: string }
+                transactionRef: { type: string }
+                status: { type: string, enum: [SUCCEEDED, FAILED, CANCELLED, PENDING] }
+      responses:
+        '200': { description: Event accepted or already processed }
+        '401': { description: Invalid signature }
+        '404': { description: Unknown provider transaction }
+  /v1/orders/{orderId}/ticket:
+    get:
+      summary: Get the current user's ticket for a paid order
+      parameters:
+        - $ref: '#/components/parameters/OrderId'
+      responses:
+        '200': { description: Ticket state, content: { application/json: { schema: { $ref: '#/components/schemas/Ticket' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { description: Order is not paid }
+components:
+  securitySchemes:
+    BearerAuth: { type: http, scheme: bearer, bearerFormat: opaque-session-token }
+  parameters:
+    LockId: { name: lockId, in: path, required: true, schema: { type: string } }
+    OrderId: { name: orderId, in: path, required: true, schema: { type: string } }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 16, maxLength: 128 }
+  responses:
+    Unauthorized: { description: Missing, expired or revoked session, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+    NotFound: { description: Absent or not visible to this user, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+    Conflict: { description: State no longer permits this operation, content: { application/json: { schema: { $ref: '#/components/schemas/ApiError' } } } }
+  schemas:
+    Money:
+      type: object
+      required: [amountMinor, currency]
+      properties:
+        amountMinor: { type: integer, format: int64, minimum: 0 }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+    OrderQuote:
+      type: object
+      required: [lockId, quoteVersion, movie, cinema, auditorium, showtime, items, subtotal, fees, total, expiresAt]
+      properties:
+        lockId: { type: string }
+        quoteVersion: { type: integer, minimum: 1 }
+        movie: { $ref: '#/components/schemas/MovieSnapshot' }
+        cinema: { $ref: '#/components/schemas/CinemaSnapshot' }
+        auditorium: { $ref: '#/components/schemas/AuditoriumSnapshot' }
+        showtime: { $ref: '#/components/schemas/ShowtimeSnapshot' }
+        items: { type: array, minItems: 1, maxItems: 6, items: { $ref: '#/components/schemas/OrderItem' } }
+        subtotal: { $ref: '#/components/schemas/Money' }
+        fees: { $ref: '#/components/schemas/Money' }
+        total: { $ref: '#/components/schemas/Money' }
+        expiresAt: { type: string, format: date-time }
+    OrderItem:
+      type: object
+      required: [seatId, rowLabel, seatLabel, unitPrice]
+      properties:
+        seatId: { type: string }
+        rowLabel: { type: string }
+        seatLabel: { type: string }
+        priceZoneId: { type: string }
+        unitPrice: { $ref: '#/components/schemas/Money' }
+    OrderSummary:
+      type: object
+      required: [id, status, total, createdAt, paymentDeadline]
+      properties:
+        id: { type: string }
+        status: { $ref: '#/components/schemas/OrderStatus' }
+        total: { $ref: '#/components/schemas/Money' }
+        createdAt: { type: string, format: date-time }
+        paymentDeadline: { type: string, format: date-time }
+    OrderDetail:
+      allOf:
+        - $ref: '#/components/schemas/OrderSummary'
+        - type: object
+          required: [movie, cinema, auditorium, showtime, items, allowedActions]
+          properties:
+            movie: { $ref: '#/components/schemas/MovieSnapshot' }
+            cinema: { $ref: '#/components/schemas/CinemaSnapshot' }
+            auditorium: { $ref: '#/components/schemas/AuditoriumSnapshot' }
+            showtime: { $ref: '#/components/schemas/ShowtimeSnapshot' }
+            items: { type: array, minItems: 1, maxItems: 6, items: { $ref: '#/components/schemas/OrderItem' } }
+            paidAt: { type: string, format: date-time, nullable: true }
+            allowedActions: { type: array, items: { type: string, enum: [PAY, RETRY_PAYMENT, REFRESH, VIEW_TICKET] } }
+            ticket: { allOf: [{ $ref: '#/components/schemas/Ticket' }], nullable: true }
+    OrderStatus:
+      type: string
+      enum: [PENDING_PAYMENT, PAYMENT_PROCESSING, PAID, PAYMENT_FAILED, CANCELLED, EXPIRED, REVIEW_REQUIRED]
+    MovieSnapshot:
+      type: object
+      required: [id, title]
+      properties:
+        id: { type: integer }
+        title: { type: string }
+        posterUrl: { type: string, nullable: true }
+    CinemaSnapshot:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+    AuditoriumSnapshot:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string }
+        name: { type: string }
+    ShowtimeSnapshot:
+      type: object
+      required: [id, startsAt, timeZone]
+      properties:
+        id: { type: string }
+        startsAt: { type: string, format: date-time }
+        timeZone: { type: string }
+    PaymentAttempt:
+      type: object
+      required: [id, orderId, method, status, amount, createdAt]
+      properties:
+        id: { type: string }
+        orderId: { type: string }
+        method: { type: string, enum: [ALIPAY_SIMULATED, WECHAT_SIMULATED] }
+        status: { type: string, enum: [CREATED, PROCESSING, SUCCEEDED, FAILED, CANCELLED, UNKNOWN, REVIEW_REQUIRED] }
+        amount: { $ref: '#/components/schemas/Money' }
+        createdAt: { type: string, format: date-time }
+    Ticket:
+      type: object
+      required: [id, orderId, status, issuedAt]
+      properties:
+        id: { type: string }
+        orderId: { type: string }
+        status: { type: string, enum: [GENERATING, READY, FAILED_RETRYABLE] }
+        credential: { type: string, nullable: true }
+        issuedAt: { type: string, format: date-time }
+    OrderConflict:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string, enum: [LOCK_INVALID, AMOUNT_CHANGED, SHOWTIME_UNAVAILABLE] }
+        message: { type: string }
+        latestQuote: { allOf: [{ $ref: '#/components/schemas/OrderQuote' }], nullable: true }
+    ApiError:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: string }
+        message: { type: string }
