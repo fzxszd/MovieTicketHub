@@ -1,92 +1,92 @@
 # MovieTicketHub
 
-MovieTicketHub is a full-stack Android movie discovery and cinema-ticketing app. It combines a Jetpack Compose client with a Flask + SQLite service for account security, showtime inventory, seat locking, orders, simulated payments, favorites synchronization, and recommendations.
+MovieTicketHub 是一个全栈 Android 电影浏览与影院购票应用。项目由 Jetpack Compose 客户端和 Flask + SQLite 服务端组成，覆盖账号安全、场次库存、座位锁定、订单、模拟支付、收藏同步与个性化推荐等功能。
 
-> This is a development/demo implementation. Payment providers are simulated; do not use it to process real money.
+> 本项目用于开发与演示。支付渠道为模拟实现，不能用于处理真实资金。
 
-## Highlights
+## 已实现功能
 
-- Browse now-playing and upcoming movies from the Maoyan movie API; search titles and view movie details, cast, and synopsis.
-- Browse as a guest, with authentication gates for favorites, seat selection, and purchases.
-- Register, sign in, restore a session, and sign out. Tokens are encrypted on-device and revocable on the server.
-- Browse showtimes by city, cinema, date, district, time range, price range, distance, and sort order.
-- Select one to six seats from a live seat map. The server owns availability and creates a 10-minute expiring seat lock.
-- Request a server-authoritative quote, create an order idempotently, complete simulated Alipay/WeChat payments, view tickets, and refund paid orders.
-- Keep favorites offline-first with Room, then reconcile changes across devices using an operation queue, idempotency keys, and server revisions.
-- Receive explainable personalized recommendations based on confirmed favorites, purchases, popularity, freshness, and collaborative signals; fall back safely for guests or cold starts.
+- 通过猫眼电影接口浏览正在热映和即将上映的电影；支持搜索、查看影片详情、演职员与简介。
+- 支持游客浏览；收藏、选座和购票会自动触发登录门控。
+- 支持注册、登录、会话恢复和退出登录；令牌在设备端加密保存，并可由服务端撤销。
+- 可按城市、影院、日期、行政区、时间段、价格范围、距离和排序方式查询场次。
+- 在实时座位图中选择 1–6 个座位；服务端拥有最终库存裁决权，并创建 10 分钟有效的座位锁。
+- 获取服务端权威报价、幂等创建订单、使用模拟支付宝/微信支付、查看电子票并退款。
+- 以 Room 实现离线优先收藏，通过操作队列、幂等键和服务端 revision 完成跨设备增量同步。
+- 根据已确认收藏、购票、热度、新鲜度和协同信号生成可解释的个性化推荐；游客和冷启动场景可安全降级。
 
-## Screenshots
+## 界面截图
 
-The following emulator captures are included in the repository.
+以下模拟器界面截图已包含在仓库中。
 
 <p align="center">
-  <img src="screenshots/splash_screen.png" alt="Splash screen" width="23%" />
-  <img src="screenshots/login_screen.png" alt="Login screen" width="23%" />
-  <img src="screenshots/movies_list_screen_1.png" alt="Now-playing movie list" width="23%" />
-  <img src="screenshots/movies_list_screen_2.png" alt="Upcoming movie list" width="23%" />
+  <img src="screenshots/splash_screen.png" alt="启动页" width="23%" />
+  <img src="screenshots/login_screen.png" alt="登录页" width="23%" />
+  <img src="screenshots/movies_list_screen_1.png" alt="正在热映列表" width="23%" />
+  <img src="screenshots/movies_list_screen_2.png" alt="即将上映列表" width="23%" />
 </p>
 
 <p align="center">
-  <img src="screenshots/movie_detail_screen_1.png" alt="Movie detail" width="30%" />
-  <img src="screenshots/movie_detail_screen_2.png" alt="Movie details and cast" width="30%" />
-  <img src="screenshots/favorite_movies.png" alt="Favorite movies" width="30%" />
+  <img src="screenshots/movie_detail_screen_1.png" alt="影片详情" width="30%" />
+  <img src="screenshots/movie_detail_screen_2.png" alt="影片详情与演职员" width="30%" />
+  <img src="screenshots/favorite_movies.png" alt="我的收藏" width="30%" />
 </p>
 
-## Architecture
+## 架构概览
 
 ```text
 Jetpack Compose UI
-  └─ ViewModel + StateFlow (MVI-style unidirectional state)
-       └─ Domain repositories
-            ├─ Maoyan movie APIs through Ktor
-            ├─ Flask REST API through Ktor + Bearer tokens
-            └─ Room local cache and offline favorite-operation queue
+  └─ ViewModel + StateFlow（MVI 风格单向状态流）
+       └─ Domain Repository
+            ├─ 通过 Ktor 访问猫眼电影接口
+            ├─ 通过 Ktor + Bearer Token 访问 Flask REST API
+            └─ 使用 Room 缓存数据与离线收藏操作队列
 
 Flask API
-  ├─ auth          password hashing, sessions, throttling, logout
-  ├─ showtimes     local-time filtering, distance sorting, versions
-  ├─ seats         live inventory, locks, expiry, concurrency control
-  ├─ orders        quotes, orders, tickets, refunds, audit events
-  ├─ payments      simulated provider attempts and signed webhooks
-  ├─ favorites     operation log, revisions, incremental synchronization
-  └─ recommendations hybrid ranking, fallbacks, event metrics
-       └─ SQLite (development storage)
+  ├─ auth             密码哈希、会话、限流、退出登录
+  ├─ showtimes        本地时区筛选、距离排序、版本校验
+  ├─ seats            实时库存、锁座、过期处理、并发控制
+  ├─ orders           报价、订单、票券、退款、审计事件
+  ├─ payments         模拟支付尝试与可验签 webhook
+  ├─ favorites        操作日志、revision、增量同步
+  └─ recommendations  混合排序、降级策略、行为指标
+       └─ SQLite（开发环境存储）
 ```
 
-The Android client is structured into `presentation`, `domain`, and `data` layers. Server-side business ownership is deliberate: the client renders state and makes requests, while the server is the final authority for sessions, inventory, prices, payment outcomes, and confirmed favorites.
+Android 客户端按 `presentation`、`domain`、`data` 分层。客户端负责渲染状态并发起请求；服务端负责会话、库存、价格、支付结果和已确认收藏等业务事实的最终判定。
 
-## Key Technical Decisions
+## 关键技术设计
 
-| Area | Approach |
+| 领域 | 实现方案 |
 | --- | --- |
-| Session security | Werkzeug scrypt password hashes; only SHA-256 token digests are stored server-side; Android stores tokens with Android Keystore AES/GCM. |
-| Seat concurrency | SQLite `BEGIN IMMEDIATE`, availability-guarded updates, idempotency keys, a seat-set fingerprint, and expiry cleanup prevent duplicate active locks. |
-| Money and orders | All amounts use integer minor units. Quote acceptance, order creation, payment attempts, tickets, and state events are server authoritative and idempotent. |
-| Favorites | Room separates desired and confirmed state. A per-account operation queue and revision cursor make retries and multi-device convergence safe. |
-| Recommendations | Deterministic hybrid ranking excludes already-favorited/purchased films, records explainable result snapshots, and supports event de-duplication. |
+| 会话安全 | 使用 Werkzeug scrypt 保存密码哈希；服务端仅保存 Token 的 SHA-256 摘要；Android 端以 Android Keystore AES/GCM 加密保存 Token。 |
+| 锁座并发 | 使用 SQLite `BEGIN IMMEDIATE`、带库存状态条件的更新、幂等键、座位集合指纹和过期清理，避免重复有效锁。 |
+| 金额与订单 | 全部金额均使用整数最小货币单位；报价确认、订单、支付尝试、票券和状态事件均由服务端权威且幂等地处理。 |
+| 收藏同步 | Room 分离用户期望状态和服务端确认状态；按账号隔离的操作队列和 revision 游标保证重试和多设备收敛安全。 |
+| 推荐 | 确定性的混合排序会排除已收藏/已购电影，保存可解释的推荐快照，并支持事件去重。 |
 
-For a deeper implementation walkthrough, see [the project technical summary](docs/项目技术总结.md) and [the Spring Boot migration assessment](docs/SpringBoot后端重构成本评估.md).
+更深入的实现说明请阅读：[项目技术总结](docs/项目技术总结.md) 与 [Spring Boot 后端重构成本评估](docs/SpringBoot后端重构成本评估.md)。
 
-## Tech Stack
+## 技术栈
 
-| Layer | Technology |
+| 层级 | 技术 |
 | --- | --- |
-| Android | Kotlin, Jetpack Compose, Material 3, Navigation Compose, ViewModel, StateFlow, Coroutines |
-| Client data | Ktor 3, kotlinx.serialization, Coil 3, Room 2.6, Koin 4, Android Keystore |
-| Backend | Python 3, Flask 3, SQLite, standard-library HMAC |
-| Testing | Python `unittest`, Flask test client, JUnit, Ktor Mock, Room Testing, Compose UI tests |
+| Android | Kotlin、Jetpack Compose、Material 3、Navigation Compose、ViewModel、StateFlow、Coroutines |
+| 客户端数据层 | Ktor 3、kotlinx.serialization、Coil 3、Room 2.6、Koin 4、Android Keystore |
+| 服务端 | Python 3、Flask 3、SQLite、标准库 HMAC |
+| 测试 | Python `unittest`、Flask test client、JUnit、Ktor Mock、Room Testing、Compose UI Test |
 
-## Run Locally
+## 本地运行
 
-### Prerequisites
+### 前置条件
 
-- Android Studio with an Android SDK/emulator (Android API 24+)
-- JDK compatible with the Gradle build
-- Python 3.12+ recommended
+- 安装 Android Studio 和 Android SDK/模拟器（Android API 24 及以上）
+- 安装与 Gradle 构建兼容的 JDK
+- 推荐使用 Python 3.12 及以上
 
-### 1. Start the backend
+### 1. 启动后端
 
-From the repository root:
+在项目根目录执行：
 
 ```powershell
 python -m venv backend/.venv
@@ -94,49 +94,49 @@ backend/.venv/Scripts/python.exe -m pip install -r backend/requirements.txt
 backend/.venv/Scripts/python.exe backend/app.py
 ```
 
-The development API listens on `http://127.0.0.1:5000`. The Android debug build is already configured to reach the host machine from the emulator at `http://10.0.2.2:5000`.
+开发 API 默认运行在 `http://127.0.0.1:5000`。Android Debug 构建已配置为通过 `http://10.0.2.2:5000` 从模拟器访问宿主机服务。
 
-### 2. Run the Android app
+### 2. 运行 Android 应用
 
-Open the root directory in Android Studio, select an emulator or device, then run the `app` configuration. Alternatively:
+在 Android Studio 中打开项目根目录，选择模拟器或真机，然后运行 `app` 配置；也可以执行：
 
 ```powershell
 .\gradlew.bat assembleDebug
 ```
 
-The app can browse movies as a guest. Start the Flask service before using login, favorites, showtimes, seat selection, payment, orders, or recommendations.
+应用支持游客浏览。使用登录、收藏、场次、选座、支付、订单或推荐功能前，请先启动 Flask 服务。
 
-## Verify
+## 验证与测试
 
-Run the backend suite:
+运行后端测试：
 
 ```powershell
 backend/.venv/Scripts/python.exe -m unittest discover -s backend -p "test_*.py" -v
 ```
 
-Run Android unit tests:
+运行 Android 单元测试：
 
 ```powershell
 .\gradlew.bat testDebugUnitTest
 ```
 
-The backend suite covers authentication, session revocation, showtime filtering, lock concurrency, idempotency, payment callbacks, refunds, favorites synchronization, and recommendation isolation.
+后端测试覆盖认证、会话撤销、场次筛选、锁座并发、幂等性、支付回调、退款、收藏同步与推荐隔离等关键场景。
 
-## Project Structure
+## 项目结构
 
 ```text
-app/                    Android application
-  src/main/java/        Compose UI, ViewModels, repositories, Room, Ktor DTOs
-  src/test/             Local unit tests
-  src/androidTest/      Device/UI and Room migration tests
-backend/                Flask service and Python test suite
-specs/                  Feature specifications, data models, API contracts, and acceptance evidence
-screenshots/            App screenshots used in this README
-docs/                   Technical and architecture documentation
+app/                    Android 应用
+  src/main/java/        Compose UI、ViewModel、Repository、Room、Ktor DTO
+  src/test/             本地单元测试
+  src/androidTest/      设备/UI 测试与 Room 迁移测试
+backend/                Flask 服务与 Python 测试套件
+specs/                  功能规格、数据模型、API 契约和验收依据
+screenshots/            README 使用的应用截图
+docs/                   技术与架构文档
 ```
 
-## Notes for Deployment
+## 部署说明
 
-- The bundled SQLite database is intended for local development. Do not commit `backend/data/*.db`.
-- Deploy the API behind HTTPS; the release build must point to a real HTTPS API endpoint instead of the placeholder URL.
-- Move to a shared database such as PostgreSQL before running multiple backend instances or integrating a real payment provider.
+- 随项目提供的 SQLite 数据库仅用于本地开发，不应提交 `backend/data/*.db`。
+- 正式部署时应将 API 置于 HTTPS 反向代理后；Release 构建必须配置真实的 HTTPS API 地址，而非占位地址。
+- 若需要多实例运行或接入真实支付渠道，应优先迁移至 PostgreSQL 等共享数据库。
